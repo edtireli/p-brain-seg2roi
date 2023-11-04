@@ -321,8 +321,12 @@ def ROI_selector(filename_t1, filename_t1_real, filename_dce, filename_dce_real,
 
     if matter_type == 'g':
         matter = seg_files[1][:, :, best_t1_slice_idx]  # Grey matter
+        grey_matter = seg_files[1][:, :, best_t1_slice_idx]
+        white_matter = seg_files[2][:, :, best_t1_slice_idx]
     elif matter_type == 'w':
         matter = seg_files[2][:, :, best_t1_slice_idx]  # White matter
+        grey_matter = seg_files[1][:, :, best_t1_slice_idx]
+        white_matter = seg_files[2][:, :, best_t1_slice_idx]
     elif matter_type == 'b':
         # Identify the boundary between grey and white matter
         grey_matter = seg_files[1][:, :, best_t1_slice_idx]
@@ -364,12 +368,22 @@ def ROI_selector(filename_t1, filename_t1_real, filename_dce, filename_dce_real,
     
     plt.figure(figsize=(12, 6))
 
-    # Plot: DCE with selected matter
-    plt.title('DCE with selected matter', fontproperties=prop, fontsize=16)
+    # First plot: DCE with boundary
+    plt.subplot(1, 2, 1)
+    plt.title(f'DCE with {mattertype_converter(matter_type)}', fontproperties=prop, fontsize=16)
     plt.imshow(np.rot90(dce_real_slice), cmap='viridis')
     plt.imshow(np.rot90(matter_downscaled), cmap='Reds', alpha=0.5)
+
+    # Second plot: Combined image of white matter, grey matter, and boundary
+    combined_img = white_matter + grey_matter * 0.5  # You can adjust the coefficients here
+    plt.subplot(1, 2, 2)
+    plt.title(f'{mattertype_converter(matter_type)} Segmentation', fontproperties=prop, fontsize=16)
+    plt.imshow(np.rot90(combined_img), cmap='gray', vmin=0, vmax=1)
+    plt.imshow(np.rot90(matter), cmap='Reds', alpha=0.5)
+
     plt.savefig(os.path.join(image_directory, 'Addons', 'Seg2ROI', f'{mattertype_converter(matter_type)}', f'dce_with_{mattertype_converter(matter_type)}.png'), dpi=200)
     plt.show()
+    plt.gcf().canvas.mpl_connect('key_press_event', on_esc)
     plt.close()
     print('[!] Please wait...')
     
