@@ -125,6 +125,7 @@ def show_slices(dce_data):
             return
         slice_idx[0] = slice_idx[0] % dce_data.shape[2]
         im.set_data(np.rot90(dce_data[:, :, slice_idx[0]]))
+        plt.title('Choose a slice to begin GM/WM identification', fontproperties=prop, fontsize=16)
         plt.draw()
     
     fig.canvas.mpl_connect('key_press_event', on_key)
@@ -178,7 +179,6 @@ def show_slices_with_buttons(t1_data):
             return
         slice_idx[0] = slice_idx[0] % t1_data.shape[2]
         im.set_data(np.rot90(t1_data[:, :, slice_idx[0]]))
-        plt.title('Choose a slice to begin GM/WM identification', fontproperties=prop, fontsize=16)
         plt.draw()
     
     fig.canvas.mpl_connect('key_press_event', on_key)
@@ -249,7 +249,7 @@ def correlate_slices(filename_t1, filename_t1_real, filename_dce, filename_dce_r
         # Run the correlation
         best_t1_slice_idx = find_best_match_for_selected_slice(selected_dce_slice_idx, processed_t1_data, dce_data, start_slice, end_slice)
 
-    print(f"Best match: DCE slice {selected_dce_slice_idx} with T1 slice {best_t1_slice_idx}")
+    print(f"Best match: DCE slice {selected_dce_slice_idx+1} with T1 slice {best_t1_slice_idx+1}")
     np.save(correlated_slice_path, best_t1_slice_idx)
     np.save(selected_slice_path, selected_dce_slice_idx)
     # Extract the slices for plotting
@@ -389,7 +389,38 @@ def ROI_selector(filename_t1, filename_t1_real, filename_dce, filename_dce_real,
     
     # Identify the voxels in the downscaled matter
     downscaled_matter_voxels = np.array(np.where(matter_downscaled)).T
-    
+
+    if matter_type == 'b':
+        dilation_prompt = input('[?] Change dilation amount (default thickness = 2)?:')
+        if dilation_prompt != '2':
+            if int(dilation_prompt) != 2:
+                dilated_grey = binary_dilation(grey_matter, structure=np.ones((3,3)), iterations=int(dilation_prompt))
+                dilated_white = binary_dilation(white_matter, structure=np.ones((3,3)), iterations=int(dilation_prompt))
+                # Find the boundary by logical AND with white matter
+                matter = np.logical_and(dilated_grey, dilated_white)
+                cropped_matter = matter[crop_margin:-crop_margin, crop_margin:-crop_margin]
+                downscaling_factor = 256 / cropped_matter.shape[0]
+                matter_downscaled = zoom(cropped_matter, (downscaling_factor, downscaling_factor), order=0)
+                plt.figure(figsize=(12, 6))
+                # First plot: DCE with boundary
+                plt.subplot(1, 2, 1)
+                plt.title(f'DCE with {mattertype_converter(matter_type)}', fontproperties=prop, fontsize=16)
+                plt.imshow(np.rot90(dce_real_slice), cmap='viridis')
+                plt.imshow(np.rot90(matter_downscaled), cmap='Reds', alpha=0.5)
+
+                # Second plot: Combined image of white matter, grey matter, and boundary
+                combined_img = white_matter + grey_matter * 0.5  # You can adjust the coefficients here
+                plt.subplot(1, 2, 2)
+                plt.title(f'{mattertype_converter(matter_type)} Segmentation', fontproperties=prop, fontsize=16)
+                plt.imshow(np.rot90(combined_img), cmap='gray', vmin=0, vmax=1)
+                plt.imshow(np.rot90(matter), cmap='Reds', alpha=0.5)
+
+                plt.savefig(os.path.join(image_directory, 'Addons', 'Seg2ROI', f'{mattertype_converter(matter_type)}', f'dce_with_{mattertype_converter(matter_type)}.png'), dpi=200)
+                plt.show()
+                plt.gcf().canvas.mpl_connect('key_press_event', on_esc)
+                plt.close()
+                print('[!] Please wait...')
+
     return downscaled_matter_voxels, selected_dce_slice_idx, best_t1_slice_idx, mattertype_converter(matter_type)
 
 
@@ -505,14 +536,14 @@ def plot_time_intensity_curves_and_CTC_boundary(data, data2, data3, roi_voxels, 
         rect = Rectangle((y, x), 1, 1, linewidth=1, edgecolor='g', facecolor='none', alpha=0.5)
         axs[2].add_patch(rect)
     axs[2].set_title(f'T1-weighted Image (Slice {slice_index2 + 1})', fontproperties=prop, fontsize=16)
-    plt.savefig(os.path.join(image_directory, 'Concentration Time Curves', 'Tissue', type, f'CTC+ROI_slice_{slice_index+1}.png'), dpi=200)
+    plt.savefig(os.path.join(image_directory, 'Concentration Time Curves', 'Tissue', type, f'CTC+ROI_slice_{slice_index+1}#seg2roi.png'), dpi=200)
     
 
     plt.gcf().canvas.mpl_connect('key_press_event', on_esc)
     plt.show()
     plt.close()
 
-    np.save(os.path.join(analysis_directory, 'CTC Data', 'Tissue', type, f'CTC_slice_{slice_index+1}.npy'), avg_C_t)
+    np.save(os.path.join(analysis_directory, 'CTC Data', 'Tissue', type, f'CTC_slice_{slice_index+1}#seg2roi.npy'), avg_C_t)
     return avg_C_t
 
 
@@ -603,9 +634,9 @@ def run(analysis_directory, nifti_directory, image_directory):
 
     correction_prompt = input('[!] Correct tissue concentration curve of anomalous behavior? (y/n): ')
     if correction_prompt == 'y':
-        curve_path = os.path.join(analysis_directory, 'CTC Data', 'Tissue', f'{matter_type}', f'CTC_slice_{best_dce_slice_idx+1}.npy')
+        curve_path = os.path.join(analysis_directory, 'CTC Data', 'Tissue', f'{matter_type}', f'CTC_slice_{best_dce_slice_idx+1}#seg2roi.npy')
         while True:
             editor = ConcentrationCurveEditor(curve)
-            corrected_curve_path = os.path.join(analysis_directory, 'CTC Data', 'Tissue', 'Boundary', f'CTC_slice_{best_dce_slice_idx+1}.npy')
+            corrected_curve_path = os.path.join(analysis_directory, 'CTC Data', 'Tissue', 'Boundary', f'CTC_slice_{best_dce_slice_idx+1}_seg2roi.npy')
             plot_corrected_tissue_curve(editor.data, data_3d, downscaled_boundary_voxels, best_dce_slice_idx, type=matter_type, time_points_s=time_points_s, image_directory = image_directory, rot90=True)
             break
