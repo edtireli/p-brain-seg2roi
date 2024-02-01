@@ -14,6 +14,18 @@ import subprocess
 import glob
 from scipy.signal import argrelextrema
 
+def find_file_with_regex(directory, regex_pattern):
+    # List all files in the directory
+    all_files = os.listdir(directory)
+
+    # Compile the regex pattern with the IGNORECASE flag
+    pattern = re.compile(regex_pattern, re.IGNORECASE)
+
+    # Filter files using the regex pattern
+    filtered_files = [file for file in all_files if pattern.match(file)]
+
+    # Return the first matched file or None if no match found
+    return filtered_files[0] if filtered_files else None
 
 def find_major_peaks(gradient, radius=10):
     """
@@ -434,8 +446,8 @@ def plot_time_intensity_curves_and_CTC_boundary(data, data2, data3, roi_voxels, 
     N = data.shape[0]
     all_C_t = []
     all_unnormalized_C_t = []
-    T1_matrix = load_from_pickle(os.path.join(analysis_directory, 'voxel_T1_matrix.pkl'))
-    M0_matrix = load_from_pickle(os.path.join(analysis_directory, 'voxel_M0_matrix.pkl'))
+    T1_matrix = load_from_pickle(os.path.join(analysis_directory, 'Fitting', 'voxel_T1_matrix.pkl'))
+    M0_matrix = load_from_pickle(os.path.join(analysis_directory, 'Fitting', 'voxel_M0_matrix.pkl'))
     for (x, y) in roi_voxels:
         voxel_time_course = data[x, y, slice_index, :]
         T1 = T1_matrix[x, y, slice_index]
@@ -451,6 +463,7 @@ def plot_time_intensity_curves_and_CTC_boundary(data, data2, data3, roi_voxels, 
     baseline_point = find_baseline_point_advanced(avg_C_t_0)-1
     print('[!] Baseline point chosen: ', baseline_point)
     avg_C_t = custom_shifter(avg_C_t_0, baseline_point)
+
     fs = 15
     cutoff = 4.0
     order = 3
@@ -583,7 +596,11 @@ def mattertype_converter(letter):
     return matter_name           
 
 
-def run(analysis_directory, nifti_directory, image_directory):
+def run(analysis_directory, nifti_directory, image_directory, filenames, parameters):
+    t1_3D_filename, axial_t1_3D_filename, t2_3D_filename, axial_t2_3D_filename, \
+    flair_3D_filename, axial_flair_3D_filename, axial_t2_2D_filename, dce_filename = filenames
+    _,_ = parameters
+
     os.makedirs(os.path.join(image_directory, 'Addons', 'Seg2ROI'), exist_ok=True)
     os.makedirs(os.path.join(analysis_directory, 'Addons', 'Seg2ROI'), exist_ok=True)
     names = ['White Matter', 'Grey Matter', 'Boundary']
@@ -591,37 +608,22 @@ def run(analysis_directory, nifti_directory, image_directory):
         os.makedirs(os.path.join(image_directory, 'Addons', 'Seg2ROI', i), exist_ok=True)
         os.makedirs(os.path.join(analysis_directory, 'Addons', 'Seg2ROI', i), exist_ok=True)
 
-    possible_dce_filenames = ['WIPAxT2TSEmatrix.nii', 'WIPDelRec-AxT2TSEmatrix.nii']
-    filename_dce = first_existing_dce_file(nifti_directory, possible_dce_filenames)
-    nifti_img_dce = nib.load(filename_dce)
-    possible_dce_filenames_real = ['WIPhperf120long.nii', 'WIPDelRec-hperf120long.nii']
-    filename_dce_real = first_existing_dce_file(nifti_directory, possible_dce_filenames_real)
+    filename_dce = os.path.join(nifti_directory, find_file_with_regex(nifti_directory, axial_t2_2D_filename))
+    filename_dce_real = os.path.join(nifti_directory, dce_filename)
     TR = nib.load(filename_dce_real).header.get_zooms()[-1]
     num_volumes = nib.load(filename_dce_real).shape[-1]
     total_scan_duration = TR * num_volumes 
     time_points_s = np.linspace(0, total_scan_duration, num_volumes)
     np.save(os.path.join(analysis_directory, 'time_points_s.npy'), time_points_s)
 
-    # Finding and loading T1 image
-    pattern = r'ax([-_ ])?vwipcs_3D_Brain_VIEW_T2_32chSHC\.nii'
-    filename_t1 = find_matching_file(nifti_directory, pattern)
-    print(f"[!] Found: {filename_t1}" if filename_t1 else "[x] No matching file found.")
-
-    # Finding and loading DCE image
-    possible_dce_filenames = ['WIPAxT2TSEmatrix.nii', 'WIPDelRec-AxT2TSEmatrix.nii']
-    filename_dce = first_existing_dce_file(nifti_directory, possible_dce_filenames)
-    print(f"[!] Found: {filename_dce}" if filename_dce else "[x] No matching file found.")
+    # Finding and loading T1&T2 image
+    filename_t1 = os.path.join(nifti_directory, find_file_with_regex(nifti_directory, axial_t2_3D_filename))
+    filename_dce = os.path.join(nifti_directory, axial_t2_2D_filename)
 
     # Finding and loading "real" T1W image
-    pattern_real = r'ax([-_ ])?vwipcs_t1w_3d_tfe_32channel\.nii'
-    filename_t1_real = find_matching_file(nifti_directory, pattern_real)
-    print(f"[!] Found: {filename_t1_real}" if filename_t1_real else "[x] No matching file found.")
-
+    filename_t1_real = os.path.join(nifti_directory, find_file_with_regex(nifti_directory, axial_t1_3D_filename))
     # Finding and loading "real" DCE image
-    possible_dce_filenames_real = ['WIPhperf120long.nii', 'WIPDelRec-hperf120long.nii']
-    filename_dce_real = first_existing_dce_file(nifti_directory, possible_dce_filenames_real)
-    print(f"[!] Found: {filename_dce_real}" if filename_dce_real else "[x] No matching file found.")
-
+    filename_dce_real = os.path.join(nifti_directory, dce_filename)
     downscaled_boundary_voxels, best_dce_slice_idx, correlated_t1_slice, matter_type = ROI_selector(filename_t1, filename_t1_real, filename_dce, filename_dce_real, analysis_directory, nifti_directory, image_directory)
 
 
